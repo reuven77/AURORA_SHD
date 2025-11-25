@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Dashboard Sensor - Aurora STMKG (Final Revisi)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+      .card-shadow {
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.55);
+      }
+      .glass {
+        background: rgba(30, 31, 36, 0.6);
+      }
+      .circle-wrap {
+        width: 120px;
+        height: 120px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .circle-svg {
+        transform: rotate(-90deg);
+      }
+      .ring-bg {
+        stroke: rgba(255, 255, 255, 0.08);
+      }
+      .ring-fg {
+        stroke-linecap: round;
+        transition: stroke-dashoffset 700ms cubic-bezier(0.22, 0.9, 0.39, 1),
+          stroke 400ms ease;
+      }
+      @media (max-width: 900px) {
+        .grid-main {
+          grid-template-columns: 1fr !important;
+        }
+      }
+
+      .pulse-marker {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: rgba(245, 158, 11, 1);
+        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.12);
+        position: relative;
+      }
+      .pulse-marker::after {
+        content: "";
+        position: absolute;
+        left: -8px;
+        top: -8px;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: rgba(245, 158, 11, 0.18);
+        animation: pulse 1.6s infinite ease-out;
+      }
+      @keyframes pulse {
+        0% {
+          transform: scale(0.7);
+          opacity: 0.9;
+        }
+        70% {
+          transform: scale(1.6);
+          opacity: 0;
+        }
+        100% {
+          transform: scale(2);
+          opacity: 0;
+        }
+      }
+
+      #map {
+        width: 100%;
+        height: 320px;
+        border-radius: 12px;
+      }
+      .leaflet-container {
+        background: #eaeaea;
+      }
+
+      /* Legend styling */
+      .legend {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-top: 12px;
+      }
+      .legend .item {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-size: 13px;
+        color: #d1d5db;
+      }
+      .swatch {
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-gradient-to-br from-gray-900 via-gray-800 to-black min-h-screen text-white font-sans"
+  >
+    <img
+      src="logoaurora.png"
+      alt="Aurora STMKG"
+      class="w-20 h-20 absolute top-4 left-28 z-30 rounded-full shadow-md"
+    />
+    <img
+      src="logostmkg.png"
+      alt="Aurora STMKG"
+      class="w-20 h-20 absolute top-4 left-4 z-30 rounded-full shadow-md"
+    />
+
+    <div class="max-w-7xl mx-auto p-6">
+      <header class="relative mb-6 pt-2">
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex items-center gap-4">
+            <div>
+              <div class="text-sm text-gray-300">Nama Alat</div>
+              <div id="deviceId" class="text-xl font-bold">-</div>
+            </div>
+            <div class="ml-4">
+              <div class="text-sm text-gray-300">Koordinat (Lat, Lon)</div>
+              <div id="coords" class="text-sm font-mono">-</div>
+            </div>
+          </div>
+
+          <div class="text-right">
+            <div class="text-sm text-gray-300">Timestamp (WIB)</div>
+            <div id="timestampNow" class="font-mono">-</div>
+          </div>
+        </div>
+      </header>
+
+      <main class="grid grid-cols-12 gap-6 grid-main">
+        <!-- Left: device card + map -->
+        <section class="col-span-5">
+          <div class="rounded-2xl p-6 glass card-shadow">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-2xl font-semibold">Perangkat</div>
+                <div id="deviceShort" class="text-sm text-gray-300 mt-1">-</div>
+              </div>
+              <div class="text-sm text-gray-400">
+                Durasi hidup sensor:<br />
+                <span id="sensorOnDuration" class="font-mono">-</span>
+              </div>
+            </div>
+
+            <div class="mt-6">
+              <div
+                id="map"
+                role="application"
+                aria-label="Peta lokasi perangkat"
+              ></div>
+
+              <div class="mt-4 text-sm text-gray-300">
+                <div><strong>Alamat:</strong></div>
+                <div id="address" class="font-mono mt-1">-</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right: wheels -->
+        <section class="col-span-7">
+          <div class="rounded-2xl p-6 glass card-shadow">
+            <div class="flex items-center justify-between mb-4">
+              <h2 class="text-2xl font-bold">Data Real Time</h2>
+              <div class="text-sm text-gray-400">
+                Terakhir update: <span id="lastUpdate">-</span>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-4 gap-4" id="sensorCards">
+              <div
+                class="p-4 rounded-lg bg-gray-800/40 flex flex-col items-center"
+                id="card_temp"
+              >
+                <div class="circle-wrap" role="img" aria-label="Suhu">
+                  <svg
+                    class="circle-svg"
+                    width="120"
+                    height="120"
+                    viewBox="0 0 120 120"
+                  >
+                    <circle
+                      class="ring-bg"
+                      cx="60"
+                      cy="60"
+                      r="52"
+                      stroke-width="12"
+                      fill="none"
+                    ></circle>
+                    <circle
+                      id="temp_ring"
+                      class="ring-fg"
+                      cx="60"
+                      cy="60"
+                      r="52"
+                      stroke-width="12"
+                      fill="none"
+                      stroke="#F97316"
+                      stroke-dasharray="326.7256"
+                      stroke-dashoffset="326.7256"
+                    ></circle>
+                  </svg>
+                </div>
+                <div class="mt-3 text-sm text-gray-300">Suhu</div>
+                <div id="value_temp" class="text-lg font-bold mt-1">- °C</div>
+              </div>
+
+              <div
+                class="p-4 rounded-lg bg-gray-800/40 flex flex-col items-center"
+                id="card_hum"
+              >
+                <div class="circle-wrap" role="img" aria-label="Kelembaban">
+                  <svg
+                    class="circle-svg"
+                    width="120"
+                    height="120"
+                    viewBox="0 0 120 120"
+                  >
+                    <circle
+                      class="ring-bg"
+                      cx="60"
+                      cy="60"
+                      r="52"
+                      stroke-width="12"
+                      fill="none"
+                    ></circle>
+                    <circle
+                      id="hum_ring"
+                      class="ring-fg"
+                      cx="60"
+                      cy="60"
+                      r="52"
+                      stroke-width="12"
+                      fill="none"
+                      stroke="#60A5FA"
+                      stroke-dasharray="326.7256"
+                      stroke-dashoffset="326.7256"
+                    ></circle>
+                  </svg>
+                </div>
+                <div class="mt-3 text-sm text-gray-300">Kelembaban</div>
+                <div id="value_humidity" class="text-lg font-bold mt-1">
+                  - % RH
+                </div>
+              </div>
+
+              <div
+                class="p-4 rounded-lg bg-gray-800/40 flex flex-col items-center"
+                id="card_pressure"
+              >
+                <div class="circle-wrap" role="img" aria-label="Tekanan">
+                  <svg
+                    class="circle-svg"
+                    width="120"
+                    height="120"
+                    viewBox="0 0 120 120"
+                  >
+                    <circle
+                      class="ring-bg"
+                      cx="60"
+                      cy="60"
+                      r="52"
+                      stroke-width="12"
+                      fill="none"
+                    ></circle>
+                    <circle
+                      id="pres_ring"
+                      class="ring-fg"
+                      cx="60"
+                      cy="60"
+                      r="52"
+                      stroke-width="12"
+                      fill="none"
+                      stroke="#34D399"
+                      stroke-dasharray="326.7256"
+                      stroke-dashoffset="326.7256"
+                    ></circle>
+                  </svg>
+                </div>
+                <div class="mt-3 text-sm text-gray-300">Tekanan</div>
+                <div id="value_pressure" class="text-lg font-bold mt-1">
+                  - Pa
+                </div>
+              </div>
+
+              <div
+                class="p-4 rounded-lg bg-gray-800/40 flex flex-col items-center"
+                id="card_co"
+              >
+                <div class="circle-wrap" role="img" aria-label="CO">
+                  <svg
+                    class="circle-svg"
+                    width="120"
+                    height="120"
+                    viewBox="0 0 120 120"
+                  >
+                    <circle
+                      class="ring-bg"
+                      cx="60"
+                      cy="60"
+                      r="52"
+                      stroke-width="12"
+                      fill="none"
+                    ></circle>
+                    <circle
+                      id="co_ring"
+                      class="ring-fg"
+                      cx="60"
+                      cy="60"
+                      r="52"
+                      stroke-width="12"
+                      fill="none"
+                      stroke="#F87171"
+                      stroke-dasharray="326.7256"
+                      stroke-dashoffset="326.7256"
+                    ></circle>
+                  </svg>
+                </div>
+                <div class="mt-3 text-sm text-gray-300">CO konsentrasi</div>
+                <div id="value_co" class="text-lg font-bold mt-1">- ppm</div>
+              </div>
+            </div>
+
+            <!-- Legend placed between sensors and specs -->
+            <div class="legend" aria-hidden="false">
+              <div class="item">
+                <div class="swatch" style="background: #10b981"></div>
+                <div><strong>Hijau:</strong> Baik</div>
+              </div>
+              <div class="item">
+                <div class="swatch" style="background: #60a5fa"></div>
+                <div><strong>Biru:</strong> Normal (sedikit off)</div>
+              </div>
+              <div class="item">
+                <div class="swatch" style="background: #f43f5e"></div>
+                <div><strong>Merah:</strong> Berbahaya</div>
+              </div>
+            </div>
+
+            <p class="text-xs text-gray-400 mt-4">
+              Klik widget untuk membuka metadata perangkat.
+            </p>
+          </div>
+        </section>
+
+        <!-- New section: Spesifikasi sensor (5 widgets - suhu and tekanan separated) -->
+        <section class="col-span-12">
+          <div class="mt-6 rounded-xl p-6 glass card-shadow">
+            <h3 class="text-xl font-bold mb-3">Spesifikasi Sensor</h3>
+            <div class="grid grid-cols-5 gap-4 text-sm text-gray-300">
+              <div class="p-3 bg-gray-800/50 rounded">
+                <div class="font-semibold">Sensor Suhu</div>
+                <div>DHT 22</div>
+                <div class="mt-2">Range: 0°C — 50°C</div>
+                <div>Akurasi: ±2.0°C</div>
+                <div>Sampling: 1 Hz</div>
+              </div>
+              <div class="p-3 bg-gray-800/50 rounded">
+                <div class="font-semibold">Sensor Tekanan</div>
+                <div>BMP280</div>
+                <div class="mt-2">Range: 300 — 1100 hPa</div>
+                <div>Akurasi: ±1 hPa</div>
+                <div>Sampling: 1 Hz</div>
+              </div>
+              <div class="p-3 bg-gray-800/50 rounded">
+                <div class="font-semibold">Sensor Kelembaban</div>
+                <div>DHT 22</div>
+                <div class="mt-2">Range: 0% — 100% RH</div>
+                <div>Akurasi: ±2% RH</div>
+                <div>Sampling: 1 Hz</div>
+              </div>
+              <div class="p-3 bg-gray-800/50 rounded">
+                <div class="font-semibold">Sensor CO</div>
+                <div>MQ-7 Gas Sensor</div>
+                <div class="mt-2">Range: 10 — 1000 ppm</div>
+                <div>Sensitivitas: ≥ 3%</div>
+                <div>Sampling: 1 Hz</div>
+              </div>
+              <div class="p-3 bg-gray-800/50 rounded">
+                <div class="font-semibold">GPS / Lokasi</div>
+                <div>Module NEO-6M</div>
+                <div class="mt-2">Akurasi: ~2,5 m</div>
+                <div>Update: 1 Hz</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Metadata panel -->
+        <section class="col-span-12">
+          <div
+            id="metaPanel"
+            class="mt-6 rounded-xl p-6 glass card-shadow hidden"
+          >
+            <div class="flex items-start justify-between">
+              <div>
+                <h3 class="text-lg font-bold" id="metaTitle">
+                  Detail Perangkat
+                </h3>
+                <div class="text-sm text-gray-300 mt-2">
+                  Informasi metadata (serial, koordinat, timestamp, durasi hidup
+                  sensor).
+                </div>
+                <div class="mt-4 grid grid-cols-2 gap-4 text-sm text-gray-300">
+                  <div>
+                    <strong>Nomor Alat</strong>
+                    <div id="meta_serial" class="mt-1 font-mono">-</div>
+                  </div>
+                  <div>
+                    <strong>Koordinat</strong>
+                    <div id="meta_coords" class="mt-1 font-mono">-</div>
+                  </div>
+                  <div>
+                    <strong>Terakhir update</strong>
+                    <div id="meta_last" class="mt-1 font-mono">-</div>
+                  </div>
+                  <div>
+                    <strong>Sensor aktif sejak</strong>
+                    <div id="meta_sensoron" class="mt-1 font-mono">-</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="text-right">
+                <button id="metaClose" class="px-3 py-1 bg-gray-700 rounded">
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      // utilities: format to WIB (dd MMM yyyy / HH:mm:ss)
+      function formatWIB(d) {
+        const opts = {
+          timeZone: "Asia/Jakarta",
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        };
+        const parts = new Intl.DateTimeFormat("id-ID", opts).formatToParts(d);
+        const map = {};
+        parts.forEach((p) => {
+          if (p.type !== "literal") map[p.type] = p.value;
+        });
+        return `${map.day} ${map.month} ${map.year} / ${map.hour}:${map.minute}:${map.second}`;
+      }
+
+      function formatHHMMSS(sec) {
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = Math.floor(sec % 60);
+        return [h, m, s].map((n) => String(n).padStart(2, "0")).join(":");
+      }
+
+      const CIRCUMFERENCE = 2 * Math.PI * 52;
+      function setCircleProgress(elemId, percent) {
+        const el = document.getElementById(elemId);
+        if (!el) return;
+        percent = Math.max(0, Math.min(100, percent));
+        const offset = CIRCUMFERENCE * (1 - percent / 100);
+        el.style.strokeDasharray = `${CIRCUMFERENCE}`;
+        el.style.strokeDashoffset = `${offset}`;
+      }
+
+      // evaluation ranges and color map
+      function evaluateStatus(metric, value) {
+        const ranges = {
+          temp: { gMin: 22, gMax: 28, bMin: 20, bMax: 30 },
+          humidity: { gMin: 50, gMax: 85, bMin: 45, bMax: 90 },
+          pressure: { gMin: 990, gMax: 1008, bMin: 986, bMax: 1013 },
+          co: { gMin: 0, gMax: 35, bMin: 36, bMax: 50 },
+        };
+        const r = ranges[metric];
+        if (!r) return "green";
+        if (value >= r.gMin && value <= r.gMax) return "green";
+        if (value >= r.bMin && value <= r.bMax) return "blue";
+        return "red";
+      }
+      const colorMap = { green: "#10B981", blue: "#60A5FA", red: "#F43F5E" };
+
+      // state with baseline values
+      const state = {
+        deviceId: "SHD-01",
+        coordsLat: -6.26025,
+        coordsLon: 106.77929,
+        address:
+          "Jl. Perhubungan I No. 5, Komplek Meteorologi, Pondok Betung, Bintaro, Tangerang, 15221",
+        sensorOnStart: new Date(Date.now() - 3 * 3600 * 1000),
+        lastUpdate: null,
+        baseSensors: { temp: 24.0, humidity: 60.0, pressure: 1003, co_ppm: 12 },
+        sensors: { temp: 24.0, humidity: 60.0, pressure: 1003, co_ppm: 12 },
+      };
+
+      // perturbation: only +/- 1% from baseline for selected sensor values
+      // Pressure is intentionally kept constant (return baseline directly)
+      function perturbFromBase(key) {
+        const base = state.baseSensors[key];
+        // keep pressure constant (no perturbation)
+        if (key === "pressure") return base;
+        const pct = 0.01; // 1%
+        const delta = Math.random() * pct - pct; // [-pct, +pct]
+        let val = base * (1 + delta);
+        if (key === "temp") return +val.toFixed(1);
+        if (key === "humidity") return +val.toFixed(1);
+        if (key === "co_ppm") return Math.round(val);
+        return val;
+      }
+
+      // update sensors every 15s (small changes only)
+      function updateSensorsRandom() {
+        state.sensors.temp = perturbFromBase("temp");
+        state.sensors.humidity = perturbFromBase("humidity");
+        state.sensors.pressure = perturbFromBase("pressure");
+        state.sensors.co_ppm = perturbFromBase("co_ppm");
+
+        // set lastUpdate to current time floored to nearest 15s (so timestamps are like :00, :15, :30, :45)
+        const now = new Date();
+        const floored = new Date(now.getTime());
+        const s = now.getSeconds();
+        const flooredSec = Math.floor(s / 15) * 15;
+        floored.setSeconds(flooredSec);
+        floored.setMilliseconds(0);
+        state.lastUpdate = floored;
+
+        // render using this lastUpdate
+        renderAll(state.lastUpdate);
+      }
+
+      function renderAll(now) {
+        document.getElementById("deviceId").textContent = state.deviceId;
+        document.getElementById("deviceShort").textContent = state.deviceId;
+        document.getElementById(
+          "coords"
+        ).textContent = `${state.coordsLat}, ${state.coordsLon}`;
+        document.getElementById("address").textContent = state.address;
+
+        const tsNow = now || new Date();
+        // header timestamp should still show live WIB every second; lastUpdate shows sensor update time (state.lastUpdate)
+        document.getElementById("timestampNow").textContent = formatWIB(
+          new Date()
+        );
+        document.getElementById("lastUpdate").textContent = state.lastUpdate
+          ? formatWIB(state.lastUpdate)
+          : "-";
+
+        const elapsedSec = Math.floor(
+          (Date.now() - state.sensorOnStart.getTime()) / 1000
+        );
+        document.getElementById("sensorOnDuration").textContent =
+          formatHHMMSS(elapsedSec);
+
+        // show sensor numbers
+        document.getElementById(
+          "value_temp"
+        ).textContent = `${state.sensors.temp} °C`;
+        document.getElementById(
+          "value_humidity"
+        ).textContent = `${state.sensors.humidity} %`;
+        document.getElementById(
+          "value_pressure"
+        ).textContent = `${state.sensors.pressure} Pa`;
+        document.getElementById(
+          "value_co"
+        ).textContent = `${state.sensors.co_ppm} ppm`;
+
+        // evaluation colors
+        const tColor = evaluateStatus("temp", state.sensors.temp);
+        const hColor = evaluateStatus("humidity", state.sensors.humidity);
+        const pColor = evaluateStatus("pressure", state.sensors.pressure);
+        const cColor = evaluateStatus("co", state.sensors.co_ppm);
+
+        document
+          .getElementById("temp_ring")
+          .setAttribute("stroke", colorMap[tColor]);
+        document
+          .getElementById("hum_ring")
+          .setAttribute("stroke", colorMap[hColor]);
+        document
+          .getElementById("pres_ring")
+          .setAttribute("stroke", colorMap[pColor]);
+        document
+          .getElementById("co_ring")
+          .setAttribute("stroke", colorMap[cColor]);
+
+        // progress
+        const tempPct = Math.round(((state.sensors.temp + 10) / 60) * 100);
+        const humPct = Math.round(state.sensors.humidity);
+        const presPct = Math.round(
+          ((state.sensors.pressure - 900) / 200) * 100
+        );
+        const coPct = Math.round((state.sensors.co_ppm / 1000) * 100);
+
+        setCircleProgress("temp_ring", tempPct);
+        setCircleProgress("hum_ring", humPct);
+        setCircleProgress("pres_ring", presPct);
+        setCircleProgress("co_ring", Math.min(100, coPct));
+
+        if (window.map && window.mainMarker) {
+          const content = `<strong>${state.deviceId}</strong><br/>${state.address}<br/>Lat: ${state.coordsLat}, Lon: ${state.coordsLon}`;
+          window.mainMarker.bindPopup(content);
+        }
+      }
+
+      // map init (unchanged)
+      function initMap() {
+        try {
+          const lat = state.coordsLat;
+          const lon = state.coordsLon;
+          const map = L.map("map", { zoomControl: true }).setView(
+            [lat, lon],
+            16
+          );
+          window.map = map;
+          L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 19,
+            attribution: "&copy; OpenStreetMap contributors",
+          }).addTo(map);
+          const pulseIcon = L.divIcon({
+            className: "",
+            html: '<div class="pulse-marker"></div>',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9],
+          });
+          const marker = L.marker([lat, lon], { icon: pulseIcon }).addTo(map);
+          window.mainMarker = marker;
+          marker.bindPopup(
+            `<strong>${state.deviceId}</strong><br/>${state.address}<br/>Lat: ${lat}, Lon: ${lon}`
+          );
+          L.circle([lat, lon], {
+            radius: 80,
+            color: "#F59E0B",
+            fillOpacity: 0.06,
+          }).addTo(map);
+          marker.on("click", () => {
+            openMeta();
+            marker.openPopup();
+          });
+          setTimeout(() => {
+            map.invalidateSize();
+          }, 300);
+        } catch (e) {
+          console.warn("Map init failed", e);
+        }
+      }
+
+      function wireWidgets() {
+        ["temp_ring", "hum_ring", "pres_ring", "co_ring"].forEach((id) => {
+          const el = document.getElementById(id);
+          if (!el) return;
+          el.parentElement.parentElement.addEventListener("click", () => {
+            openMeta();
+            if (window.mainMarker) window.mainMarker.openPopup();
+          });
+        });
+      }
+
+      function openMeta() {
+        document.getElementById("metaPanel").classList.remove("hidden");
+        document.getElementById("meta_serial").textContent = state.deviceId;
+        document.getElementById(
+          "meta_coords"
+        ).textContent = `${state.coordsLat}, ${state.coordsLon}`;
+        document.getElementById("meta_last").textContent = state.lastUpdate
+          ? formatWIB(state.lastUpdate)
+          : "-";
+        document.getElementById("meta_sensoron").textContent = formatHHMMSS(
+          Math.floor((Date.now() - state.sensorOnStart.getTime()) / 1000)
+        );
+      }
+
+      document.getElementById("metaClose").addEventListener("click", () => {
+        document.getElementById("metaPanel").classList.add("hidden");
+      });
+
+      // start
+      window.addEventListener("load", () => {
+        initMap();
+        wireWidgets();
+        // initial render
+        renderAll(new Date());
+        // schedule sensor updates every 15s (small changes only)
+        updateSensorsRandom();
+        setInterval(updateSensorsRandom, 15000);
+        // header timestamp and stopwatch every second
+        setInterval(() => {
+          document.getElementById("timestampNow").textContent = formatWIB(
+            new Date()
+          );
+          document.getElementById("sensorOnDuration").textContent =
+            formatHHMMSS(
+              Math.floor((Date.now() - state.sensorOnStart.getTime()) / 1000)
+            );
+        }, 1000);
+      });
+    </script>
+  </body>
+</html>
